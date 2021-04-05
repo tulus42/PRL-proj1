@@ -12,18 +12,144 @@
 using namespace std;
 
 
-void print_queues(vector<int> left_queue, vector<int> right_queue, int rank) {
-    printf("# RANK: %d #########\n", rank);
-    printf("# LEFT: \n# ");
-    for (long i=0; i < left_queue.size(); i++)
-        printf("%d ", left_queue[i]);
+bool write_to_queue(vector<int>* left, vector<int>* right, int num, int i, int length_of_cycle, bool left_queue_flag) {
+    if (left_queue_flag) {
+        left->insert(left->begin(), num);
+    }
+    else {
+        right->insert(right->begin(), num);
+    }
+
+    // switch between LEFT/RIGHT queue
+    if ((i+1) % length_of_cycle == 0) {
+        left_queue_flag = !left_queue_flag;
+    }
+    return left_queue_flag;
+}
+
+
+int get_max(vector<int>* left, vector<int>* right, int* left_cnt, int* right_cnt) {
+    int num;
+    bool left_flag;
+
+    if (right->size() == 0 || *right_cnt == 0) {
+        left_flag = true;
+    }
+    else if (left->size() == 0 || *left_cnt == 0) {
+        left_flag = false;
+    }
+    else if ( left->back() > right->back()) {
+        left_flag = true;
+    }
+    else {
+        left_flag = false;
+    }
+
+
+    if (left_flag) {
+        num = left->back();
+        left->pop_back();
+        *left_cnt -= 1;
+    }
+    else {
+        num = right->back();
+        right->pop_back();
+        *right_cnt -= 1;
+    }
+
+    return num;
+}
+
+
+void first_proc(vector<int> numbers, int numbers_size) {
+    int last_num;
+
+    // Print numbers to STD-out
+    for (int i=0; i<numbers_size; i++) {
+        printf("%d ", numbers[i]);
+    }
     printf("\n");
 
-    printf("# RIGHT: \n# ");
-    for (long i=0; i < right_queue.size(); i++)
-        printf("%d ", right_queue[i]);
-    printf("\n\n");
+    for (int i=0; i<numbers_size; i++) {
+
+        last_num = numbers.back();
+        // printf("SENDING %d. num: %d\n", i, last_num);
+        MPI_Send(&last_num, 1, MPI_INT, MASTER+1, i, COMM);
+
+        numbers.pop_back();
+    }
 }
+
+
+vector<int> other_procs(int rank, int num_size, bool last_proc) {
+    bool left_queue_flag = true;
+    int rcvd_num;
+    int length_of_cycle = (int)pow(2, rank-1);
+    int start_i = length_of_cycle + 1;
+    int left_cnt = length_of_cycle;
+    int right_cnt =  length_of_cycle;
+    vector<int> left_queue;
+    vector<int> right_queue;
+    vector<int> res;
+
+    for (int i=0; i<num_size+start_i; i++) {
+       
+        // RECIEVE
+        if (i < num_size) {
+            
+            MPI_Recv(&rcvd_num, 1, MPI_INT, rank-1, i, COMM, nullptr);
+            
+            // if (rank == 3)
+            //     printf("RCVD %d\n", rcvd_num);
+
+            left_queue_flag = write_to_queue(&left_queue, &right_queue, rcvd_num, i, length_of_cycle, left_queue_flag);
+        }
+
+        // SEND
+        if (i >= start_i) {
+            // OTHER procs
+            if (!last_proc) {
+            
+                if (left_queue.size() > 0 || right_queue.size() > 0) {
+                    int snd_num = get_max(&left_queue, &right_queue, &left_cnt, &right_cnt);
+
+                    MPI_Send(&snd_num, 1, MPI_INT, rank+1, i-start_i, COMM);
+                }
+            }
+        
+            // LAST proc
+            else {
+                int num = get_max(&left_queue, &right_queue, &left_cnt, &right_cnt);
+                res.insert(res.begin(), num);
+            }
+
+            // used whole subsequence
+            if (left_cnt == 0 && right_cnt == 0) {
+                left_cnt = length_of_cycle;
+                right_cnt = length_of_cycle;
+            }
+        }
+    }
+
+    return res;
+}
+
+
+vector<int> do_sort(int rank, int proc_size, vector<int> numbers, int numbers_size) {
+
+    if (rank == 0) {
+        first_proc(numbers, numbers_size);
+    }
+    else if (rank == proc_size-1) {
+        numbers = other_procs(rank, numbers_size, true);
+    }
+    else {
+        other_procs(rank, numbers_size, false);
+    }
+    
+    return numbers;
+}
+
 
 vector<int> load_input() {
     ifstream input("numbers", ios::binary);
@@ -41,224 +167,6 @@ vector<int> load_input() {
 
     return res;
 }
-
-bool send_num(vector<int> left_queue, vector<int> right_queue, int next_rank, int tag) {
-    // SEND to next processor
-    int num_L;
-    int num_R;
-
-    if (left_queue.size() == 0) {
-        num_R = right_queue.back();
-        MPI_Send(&num_R, 1, MPI_INT, next_rank, tag, COMM);
-        if (next_rank-1 == 2)
-        // printf("proc %d, sent: %d, tag: %d\n", next_rank-1, num_R, tag);
-        return false;
-    }
-    else if (right_queue.size() == 0) {
-        num_L = left_queue.back();
-        MPI_Send(&num_L, 1, MPI_INT, next_rank, tag, COMM);
-        if (next_rank-1 == 2)
-        // printf("proc %d, sent: %d, tag: %d\n", next_rank-1, num_L, tag);
-        return true;
-    }
-
-    num_L = left_queue.back();
-    num_R = right_queue.back();
-
-    if (num_L > num_R) {
-        MPI_Send(&num_L, 1, MPI_INT, next_rank, tag, COMM);
-        if (next_rank-1 == 2)
-        // printf("proc %d, sent: %d, tag: %d\n", next_rank-1, num_L, tag);
-        return true;
-    }
-    else {
-        MPI_Send(&num_R, 1, MPI_INT, next_rank, tag, COMM);
-        if (next_rank-1 == 2)
-        // printf("proc %d, sent: %d, tag: %d\n", next_rank-1, num_R, tag);
-        return false;
-    }
-}
-
-bool save_num(vector<int> left_queue, vector<int> right_queue) {
-    int num_L;
-    int num_R;
-
-    if (left_queue.size() == 0) {
-        return false;
-    }
-    else if (right_queue.size() == 0) {
-        return true;
-    }
-    
-    num_L = left_queue.back();
-    num_R = right_queue.back();
-
-    if (num_L > num_R) {
-        return true;
-    }
-    else {
-        return false;
-    }
-}
-
-
-void first_proc(vector<int> numbers, int numbers_size) {
-    int last_num;
-    int next_rank = 1;
-
-    for (int i=0; i < numbers_size; i++)
-        printf("%d ", numbers[i]);
-    printf("\n");
-
-    // printf("SIZE: %d\n", numbers_size);
-    for (int i=0; i < numbers_size; i++) {
-        last_num = numbers.back();
-        // printf("SENDING %d. num: %d\n", i, last_num);
-        MPI_Send(&last_num, 1, MPI_INT, next_rank, i, COMM);
-
-        numbers.pop_back();
-
-    }
-    printf("MASTER END\n");
-}
-
-
-void other_procs(int rank, int num_size) {
-    bool left_queue_flag = true;
-    int rcvd_num;
-    int next_rank = rank + 1;
-    int length_of_cycle = (int)pow(2, rank-1);
-    int start_i = length_of_cycle + 1;
-    vector<int> left_queue;
-    vector<int> right_queue;
-
-
-
-    for (int i=0; i < num_size+start_i; i++) {
-
-        // print_queues(left_queue, right_queue, rank);
-
-        // RECEIVE number
-        if (i < num_size) {
-
-            MPI_Recv(&rcvd_num, 1, MPI_INT, rank-1, i, COMM, nullptr);
-
-            if (rank == 2)
-                print_queues(left_queue, right_queue, rank);
-        
-
-            // add number into one of queues
-            if (left_queue_flag) {
-                // printf("Proc %d, i:%d, L\n", rank, i);
-                left_queue.insert(left_queue.begin(), rcvd_num);
-            }
-            else {
-                // printf("Proc %d, i:%d, R\n", rank, i);
-                right_queue.insert(right_queue.begin(), rcvd_num);
-            }
-        
-            // switch between LEFT/RIGHT queue
-            if ((i+1) % length_of_cycle == 0) {
-                left_queue_flag = !left_queue_flag;
-            }
-        }
-    
-
-        // SEND number
-        if (i >= start_i && (left_queue.size() > 0 || right_queue.size() > 0)) {
-            bool left_bigger = send_num(left_queue, right_queue, next_rank, i-start_i);
-
-            if (left_bigger) {
-                left_queue.pop_back();
-            }
-            else {
-                right_queue.pop_back();
-            }
-        }
-
-        // printf("End of %d iteration\n", i);
-    }
-
-
-
-    printf("PROC %d END\n", rank);
-}
-
-void last_proc(int rank, long num_size) {
-    bool left_queue_flag = true;
-    int rcvd_num;
-    int next_rank = rank + 1;
-    int length_of_cycle = (int)pow(2, rank-1);
-    int start_i = length_of_cycle + 1;
-    vector<int> left_queue;
-    vector<int> right_queue;
-    vector<int> res;
-    
-    for (int i=0; i < num_size+start_i; i++) {
-
-        // print_queues(left_queue, right_queue, rank);
-
-        // RECEIVE number
-        if (i < num_size) {
-
-            MPI_Recv(&rcvd_num, 1, MPI_INT, rank-1, i, COMM, nullptr);        
-
-            // add number into one of queues
-            if (left_queue_flag) {
-                // printf("Proc %d, i:%d, L\n", rank, i);
-                left_queue.insert(left_queue.begin(), rcvd_num);
-            }
-            else {
-                // printf("Proc %d, i:%d, R\n", rank, i);
-                right_queue.insert(right_queue.begin(), rcvd_num);
-            }
-        
-            // switch between LEFT/RIGHT queue
-            if ((i+1) % length_of_cycle == 0) {
-                left_queue_flag = !left_queue_flag;
-            }
-        }
-
-        // SAVE number
-        if (i >= start_i && (left_queue.size() > 0 || right_queue.size() > 0)) {
-            bool left_bigger = save_num(left_queue, right_queue);
-
-            if (left_bigger) {
-                res.insert(res.begin(), left_queue.back());
-                left_queue.pop_back();
-            }
-            else {
-                res.insert(res.begin(), right_queue.back());
-                right_queue.pop_back();
-            }
-        }
-    }
-
-
-    for (int i=0; i < num_size; i++) {
-        printf("%d ", res[i]);
-    }
-    printf("\n");
-    printf("LAST PROC END\n");
-
-}
-
-
-vector<int> do_sort(int rank, int size, vector<int> numbers, int numbers_size) {
-
-    if (rank == 0) {
-        first_proc(numbers, numbers_size);
-    }
-    else if (rank == size-1) {
-        last_proc(rank, numbers_size);
-    }
-    else {
-        other_procs(rank, numbers_size);
-    }
-
-    return numbers;
-}
-
 
 
 int distribute_size(int rank, int size, vector<int> numbers) {
@@ -280,9 +188,6 @@ int distribute_size(int rank, int size, vector<int> numbers) {
 
 
 int main(int argc, char** argv){
-    // TODO odstranit odriadkovanie
-    printf("\n");
-    // ----------------------------
     
     MPI_Init(&argc, &argv);
     int rank;
@@ -304,7 +209,9 @@ int main(int argc, char** argv){
 
     // handle 
     if (rank == size-1) {
-        printf("Vysledok - hura\n");
+        for (int i=0; i < numbers_size; i++) {
+            printf("%d\n", result[i]);
+        }
     }
 
     MPI_Finalize();

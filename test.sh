@@ -1,12 +1,8 @@
 #!/bin/bash
 
 #pocet cisel bud zadam nebo 16 :)
-if [ $# -lt 1 ];then 
-    numbers=16;
-else
-    numbers=$1;
-fi;
 
+numbers=16;
 proc_num=5
 
 #preklad cpp zdrojaku
@@ -20,4 +16,4 @@ dd if=/dev/random bs=1 count=$numbers of=numbers
 mpirun --oversubscribe -np $proc_num pms 
 
 #uklid
-#rm -f oets numbers
+rm -f pms numbers log.out
