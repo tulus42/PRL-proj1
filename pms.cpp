@@ -51,14 +51,14 @@ bool send_num(vector<int> left_queue, vector<int> right_queue, int next_rank, in
         num_R = right_queue.back();
         MPI_Send(&num_R, 1, MPI_INT, next_rank, tag, COMM);
         if (next_rank-1 == 2)
-        printf("proc %d, sent: %d, tag: %d\n", next_rank-1, num_R, tag);
+        // printf("proc %d, sent: %d, tag: %d\n", next_rank-1, num_R, tag);
         return false;
     }
     else if (right_queue.size() == 0) {
         num_L = left_queue.back();
         MPI_Send(&num_L, 1, MPI_INT, next_rank, tag, COMM);
         if (next_rank-1 == 2)
-        printf("proc %d, sent: %d, tag: %d\n", next_rank-1, num_L, tag);
+        // printf("proc %d, sent: %d, tag: %d\n", next_rank-1, num_L, tag);
         return true;
     }
 
@@ -68,13 +68,13 @@ bool send_num(vector<int> left_queue, vector<int> right_queue, int next_rank, in
     if (num_L > num_R) {
         MPI_Send(&num_L, 1, MPI_INT, next_rank, tag, COMM);
         if (next_rank-1 == 2)
-        printf("proc %d, sent: %d, tag: %d\n", next_rank-1, num_L, tag);
+        // printf("proc %d, sent: %d, tag: %d\n", next_rank-1, num_L, tag);
         return true;
     }
     else {
         MPI_Send(&num_R, 1, MPI_INT, next_rank, tag, COMM);
         if (next_rank-1 == 2)
-        printf("proc %d, sent: %d, tag: %d\n", next_rank-1, num_R, tag);
+        // printf("proc %d, sent: %d, tag: %d\n", next_rank-1, num_R, tag);
         return false;
     }
 }
@@ -144,7 +144,7 @@ void other_procs(int rank, int num_size) {
             MPI_Recv(&rcvd_num, 1, MPI_INT, rank-1, i, COMM, nullptr);
 
             if (rank == 2)
-                printf("proc %d, i:%d, rcvd: %d\n", rank, i, rcvd_num);
+                print_queues(left_queue, right_queue, rank);
         
 
             // add number into one of queues
